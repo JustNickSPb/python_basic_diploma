@@ -1,9 +1,10 @@
+import datetime
 import json
 from logging import error
-from typing import List, Tuple
-import datetime
-import requests
 import os
+from typing import List, Tuple
+
+import requests
 
 
 def get_hotels_by_price(search_city: str, response_qty: str, command: str,
