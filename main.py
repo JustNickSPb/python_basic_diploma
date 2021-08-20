@@ -1,10 +1,12 @@
+import os
+import re
+
+from dotenv import load_dotenv
 import telebot
 from telebot.types import CallbackQuery, Message
-import functions
-import os
-from dotenv import load_dotenv
-import re
+
 import classes
+import functions
 
 
 load_dotenv()
