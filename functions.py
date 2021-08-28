@@ -7,6 +7,8 @@ import requests
 from requests import Response
 
 import classes
+# TODO: Реализовать полноценное логирование (и избавиться наконец от сраного костыля в виде errors.log,
+#   который все равно нормально не работает)
 
 
 def get_hotels_by_price(data: classes.DataBundle) -> List[str]:
