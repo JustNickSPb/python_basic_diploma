@@ -1,28 +1,22 @@
 import datetime
 import json
-from logging import error
 import os
 from typing import List, Tuple
 
 import requests
+from requests import Response
+
+import classes
 
 
-def get_hotels_by_price(search_city: str, response_qty: str, command: str,
-                        min_price: str, max_price: str, distance: str) -> List[str]:
+def get_hotels_by_price(data: classes.DataBundle) -> List[str]:
     """
     Функция возвращает выборку отелей с выбранной сортировкой в выбранном городе
-    :param str search_city: город, в котором производится поиск. Получаем у пользователя в боте
-    :param str response_qty: количество отелей, которые надо найти. Получаем у пользователя в боте,
-        однако не может быть больше 10
-    :param str command: действие, которое требуется выполнить. Получаем у пользователя в боте
-    :param str min_price: минимальная цена для поиска. Применяется в случае "/bestdeal"
-    :param str max_price: максимальная цена для поиска. Применяется в случае "/bestdeal"
-    :param str distance: расстояние от центра города. Применяется в случае "/bestdeal"
+    :param classes.DataBundle data: параметры поиска
     :return List[str] result: результат поиска, возвращающийся в бот
     """
-    distance = distance.replace(',', '.')
-    distance = float(distance)
-    response = get_data_from_api(command, response_qty, search_city, min_price, max_price)
+    distance = float(data.distance.replace(',', '.'))
+    response = get_data_from_api(data)
     hotels_response = response[0]
     result = response[1]
     miles = response[2]
@@ -93,14 +87,10 @@ def get_city_id(search_city: str):
         return error_code
 
 
-def get_data_from_api(command: str, qty: str, city: str, min_price: str, max_price: str) -> Tuple[str]:
+def get_data_from_api(data: classes.DataBundle) -> Tuple[Response, List[str], str]:
     """
     Подфункция поиска отелей - собственно запрос к API
-    :param str command: действие, которое выполняем. От него зависит сортировка в запросе
-    :param str qty: количество отелей, запрошенное пользователем
-    :param str city: город, в котором будем искать
-    :param str min_price: минимальная цена
-    :param str max_price: максимальная цена
+    :param classes.DataBundle data: блок данных для запроса
     :return: Возвращаем кортеж из:
         ответа API на запрос (распарсим его дальше),
         списка, подготовленного для хранения результатов 
@@ -108,16 +98,16 @@ def get_data_from_api(command: str, qty: str, city: str, min_price: str, max_pri
         региональной меры длины - это понадобится дальше при проверке расстояний до центра
     """
     result = []
-
+    command = data.command
+    qty = data.response_qty
     # Понимаем, какую сортировку включать:
+    sorting = ''
     if command == '/lowprice':
         sorting = 'PRICE'
     elif command == '/highprice':
         sorting = 'PRICE_HIGHEST_FIRST'
     elif command == '/bestdeal':
         sorting = 'DISTANCE_FROM_LANDMARK'
-    else:
-        return ['К сожалению, не опознал команду. Попробуйте еще раз!']
     
     # Ограничиваем выборку заранее заданным числом:
     if int(qty) > 10:
@@ -143,22 +133,22 @@ def get_data_from_api(command: str, qty: str, city: str, min_price: str, max_pri
         hotel_query = {
             "adults1": "1",
             "pageNumber": "1",
-            "destinationId": city,
+            "destinationId": data.search_city,
             "pageSize": qty,
             "checkOut": tomorrow,
             "checkIn": today,
             "sortOrder": sorting,
             "locale": language,
             "currency": currency,
-            'priceMax': max_price,
-            'priceMin': min_price,
+            'priceMax': data.max_price,
+            'priceMin': data.min_price,
             'landmarkIds': 'Центр города'
         }
     else:
         hotel_query = {
             "adults1": "1",
             "pageNumber": "1",
-            "destinationId": city,
+            "destinationId": data.search_city,
             "pageSize": qty,
             "checkOut": tomorrow,
             "checkIn": today,

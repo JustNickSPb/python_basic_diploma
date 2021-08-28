@@ -12,13 +12,15 @@ import functions
 load_dotenv()
 bot = telebot.TeleBot(os.environ.get('BOT_TOKEN'))
 commands = ['/lowprice', '/highprice', '/bestdeal']
+data = classes.DataBundle()
 
 
 @bot.message_handler(content_types=['text'])
-def get_text_messages(message: Message) -> None:
+def get_text_messages(message: Message, data: classes.DataBundle) -> None:
     """
     Функция, маршрутизирующая запросы пользователя и выдающая в ответ соответствующее поведение
-    :param message Message: контент (в данном случае - текст), получаемый от пользователя
+    :param Message message: контент (в данном случае - текст), получаемый от пользователя
+    :param classes.DataBundle data: блок данных, который мы начинаем перегонять между функциями
     :return: возврата в традиционном понимании нет, функция сразу диктует боту поведение
     """
     if message.text in ["Привет", '/hello-world', '/start']:
@@ -34,64 +36,60 @@ def get_text_messages(message: Message) -> None:
                                                '"/highprice": запрос самых дорогих отелей в городе;\n'
                                                '"/bestdeal": фильтр отелей по цене и удаленности от центра города.')
     elif message.text in commands:
-        command = message.text
+        data.command = message.text
         bot.send_message(message.from_user.id, "В каком городе будем искать?")
-        bot.register_next_step_handler(message, set_city, command)
+        bot.register_next_step_handler(message, set_city, data.command)
     else:
         bot.send_message(message.from_user.id, "Не могу распознать обращение. \n"
                                                "\"/help\" даст список доступных команд.")
 
 
-def set_city(message: Message, command: str) -> None:
+def set_city(message: Message, data: classes.DataBundle) -> None:
     """
     Функция, получающая от пользователя в message город и тип поиска,
     и направляющая поток выполнения программы на получение количества результатов
-    :param message Message: сообщение, полученное из маршрутизатора
-    :param command str: команда для выполнения, полученная из маршрутизатора
+    :param Message message: сообщение, полученное из маршрутизатора
+    :param classes.DataBundle data: блок данных, в котором получаем все, помимо сообщения
     """
-    city = message.text
-    language = "ru_RU" if re.match(r'[А-Яа-яЁё]+', city) else "en_US"
+    data.search_city = message.text
+    language = "ru_RU" if re.match(r'[А-Яа-яЁё]+', data.search_city) else "en_US"
     os.environ['LANG'] = language
     bot.send_message(message.from_user.id, 'Ищу город в базе...')
-    city_found = functions.get_city_id(city)
+    city_found = functions.get_city_id(data.search_city)
     if city_found == '404':
         bot.send_message(message.from_user.id, 'Не могу найти такой город.\n'
                                                'Повторите, пожалуйста:')
-        bot.register_next_step_handler(message, set_city, command)
+        bot.register_next_step_handler(message, set_city, data.command)
     elif isinstance(city_found, list):
         dest_list = telebot.types.InlineKeyboardMarkup()
         for dest_id in city_found:
             i_city = classes.City(dest_id['caption'], dest_id['destinationId'])
             i_city.destination = re.sub(r'<[^<]+?>', '', i_city.destination)
             dest_list.add(telebot.types.InlineKeyboardButton(
-                text=i_city.destination, callback_data=i_city.id + ' ' + command))
+                text=i_city.destination, callback_data=i_city.id + ' ' + data.command))
         bot.send_message(message.from_user.id, 'Уточните, что Вы имели в виду:', reply_markup=dest_list)
     else:
-        city = city_found
+        data.search_city = city_found
         bot.send_message(message.from_user.id, 'Сколько вариантов хотите посмотреть?')
-        bot.register_next_step_handler(message, set_qty, city, command)
+        bot.register_next_step_handler(message, set_qty, data)
 
 
-def set_qty(message: Message, city: str, command: str, 
-            min_price: str ='', max_price: str ='', distance: str ='100000') -> None:
+def set_qty(message: Message, search_data: classes.DataBundle) -> None:
     """
     Функция, добавляющая в поиск параметр "количество вариантов на показ".
-    :param message Message: сообщение, перенаправленное с set_city()
-    :param city str: город поиска, заданный в set_city()
-    :param command str: команда для поиска, перенаправленная с set_city()
-    :param min_price str: минимальная цена для поиска
-    :param max_price str: максимальная цена для поиска
-    :param distance str: расстояние от центра города. Если не задано, есть дефолтные 100000
+    :param Message message: сообщение, перенаправленное с set_city()
+    :param classes.DataBundle search_data: параметры поиска, переданные в блоке данных
     """
+    if not search_data.distance:
+        search_data.distance = '10000'
     # Если пользователь опечатался в минимальной и максимальной цене, поправим:
-    if command == '/bestdeal':
-        if int(max_price) < int(min_price):
-            max_price, min_price = min_price, max_price
+    if search_data.command == '/bestdeal':
+        if int(search_data.max_price) < int(search_data.min_price):
+            search_data.max_price, search_data.min_price = search_data.min_price, search_data.max_price
 
-
-    qty = message.text
+    search_data.response_qty = message.text
     bot.send_message(message.from_user.id, 'Минутку, ищу отели по Вашему запросу...')
-    result = functions.get_hotels_by_price(city, qty, command, min_price, max_price, distance)
+    result = functions.get_hotels_by_price(search_data)
     for each in result:
         bot.send_message(message.from_user.id, each)
 
@@ -104,57 +102,45 @@ def callback_worker(call: CallbackQuery) -> None:
     и направляющая дальнейший поток выполнения программы в зависимости от команды:
     при "/bestdeal" - на поток набора параметров для запроса по "/bestdeal";
     при остальных командах - сразу на установку количества вариантов
-    :param call CallbackQuery: запрос, направленный с кнопки InLine-клавиатуры
+    :param CallbackQuery call: запрос, направленный с кнопки InLine-клавиатуры
     """
-    city, command = call.data.split()
-    if command == '/bestdeal':
+    data.city, data.command = call.data.split()
+    if data.command == '/bestdeal':
         bot.send_message(call.message.chat.id, 'Введите минимальную суточную стоимость:')
-        bot.register_next_step_handler(call.message, set_min_price, city, command)
+        bot.register_next_step_handler(call.message, set_min_price, data)
     else:
         bot.send_message(call.message.chat.id, 'Сколько вариантов хотите посмотреть?')
-        bot.register_next_step_handler(call.message, set_qty, city, command)
+        bot.register_next_step_handler(call.message, set_qty, data)
 
 
-def set_min_price(message: Message, city: str, command: str) -> None:
+def set_min_price(message: Message) -> None:
     """
     Функция, устанавливающая минимальную цену поиска
-    :param message Message: сообщение с минимальной стоимостью для обработки
-    :param city str: город поиска
-    :param command str: тип поиска
+    :param Message message: сообщение с минимальной стоимостью для обработки
     """
-    min_price = message.text
+    data.min_price = message.text
     bot.send_message(message.from_user.id, 'Введите максимальную суточную стоимость:')
-    bot.register_next_step_handler(message, set_max_price, city, command, min_price)
+    bot.register_next_step_handler(message, set_max_price, data)
 
 
-def set_max_price(message: Message, city: str, command: str, min_price: str) -> None:
+def set_max_price(message: Message) -> None:
     """
     Функция, устанавливающая максимальную цену поиска
-    :param message Message: сообщение с минимальной стоимостью для обработки
-    :param city str: город поиска
-    :param command str: тип поиска
-    :param min_price str: минимальная цена поиска
+    :param Message message: сообщение с минимальной стоимостью для обработки
     """
-    max_price = message.text
+    data.max_price = message.text
     bot.send_message(message.from_user.id, 'Насколько далеко от центра города ищем?')
-    bot.register_next_step_handler(message, set_distance_from_center, city, command, min_price,
-                                    max_price)
+    bot.register_next_step_handler(message, set_distance_from_center, data)
 
 
-def set_distance_from_center(message: Message, city: str, 
-                            command: str, min_price: str, 
-                            max_price: str) -> None:
+def set_distance_from_center(message: Message) -> None:
     """
     Функция, устанавливающая расстояние от центра города, на котором надо найти отель
-    :param message Message: сообщение с минимальной стоимостью для обработки
-    :param city str: город поиска
-    :param command str: тип поиска
-    :param min_price str: минимальная цена поиска
-    :param max_price str: максимальная цена поиска
+    :param Message message: сообщение с минимальной стоимостью для обработки
     """
-    from_center = message.text
+    data.distance = message.text
     bot.send_message(message.from_user.id, 'Сколько вариантов хотите посмотреть?')
-    bot.register_next_step_handler(message, set_qty, city, command, min_price, max_price, from_center)
+    bot.register_next_step_handler(message, set_qty, data)
 
 
 bot.polling(none_stop=True, interval=1)

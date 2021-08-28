@@ -15,3 +15,16 @@ class City:
     @destination.setter
     def destination(self, new_name):
         self.__destination = new_name
+
+
+class DataBundle:
+    """
+    Класс для хранения и передачи между функциями данных
+    """
+    def __init__(self) -> None:
+        self.search_city = ''
+        self.response_qty = ''
+        self.command = ''
+        self.min_price = ''
+        self.max_price = ''
+        self.distance = ''
